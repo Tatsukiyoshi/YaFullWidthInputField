@@ -116,6 +116,19 @@ const FullWidthNumberField: React.FC<FullWidthNumberFieldProps> = ({
 
     // バリデーションを実行
     const hasError = validateAndSetError(hankakuValue);
+    if (hasError) {
+      // バリデーションエラーがある場合は、親コンポーネントにエラーを通知
+      if (muiOnChange) {
+        muiOnChange({
+          ...event,
+          target: {
+            ...event.target,
+            value: hankakuValue,
+          },
+        });
+      }
+      return; // エラーがある場合は処理を終了
+    }
 
     // 親コンポーネントに変換後の値を通知
     if (onValueChange) {
