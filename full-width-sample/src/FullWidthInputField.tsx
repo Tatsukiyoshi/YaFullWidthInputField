@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react'; // useRefをインポート
 import type { TextFieldProps } from '@mui/material';
 import { TextField } from '@mui/material';
 
@@ -17,7 +17,6 @@ const zenkakuToHankaku = (input: string | number | null | undefined): string => 
   // 小数点を許容しない場合は .replace(/[^0-9]/g, '');
 };
 // --- ここまで ---
-
 
 // FullWidthNumberFieldに独自のPropsを追加するための型定義
 // TextFieldPropsをOmitすることで、TextFieldのvalueとonChangeが
@@ -72,6 +71,9 @@ const FullWidthNumberField: React.FC<FullWidthNumberFieldProps> = ({
 
   // 親の controlledValue が変更された場合に internalValue を同期
   // これにより、親コンポーネントから値を外部的にリセットまたは変更できます。
+  // --- IME compositionフラグを追加 ---
+  const isComposing = useRef(false);
+
   useEffect(() => {
     // ここでも直接 zenkakuToHankaku を呼び出す
     const convertedValue = zenkakuToHankaku(controlledValue);
@@ -79,9 +81,13 @@ const FullWidthNumberField: React.FC<FullWidthNumberFieldProps> = ({
       setInternalValue(convertedValue);
       // controlledValueが変更された際にバリデーションも再実行
       validateAndSetError(convertedValue);
+    } else if (controlledValue === null || controlledValue === undefined) {
+      // controlledValueがnull/undefinedになった場合に内部値をクリア
+      setInternalValue('');
+      validateAndSetError('');
     }
   }, [controlledValue, internalValue, min, max, restProps.required]); // バリデーションに関連する依存関係を追加
-  
+
   // バリデーションロジックを分離したヘルパー関数
   const validateAndSetError = useCallback((currentValue: string) => {
     let hasError: boolean = false;
@@ -110,14 +116,34 @@ const FullWidthNumberField: React.FC<FullWidthNumberFieldProps> = ({
 
   const handleInternalChange = useCallback((event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const inputValue = event.target.value;
-    const hankakuValue = zenkakuToHankaku(inputValue); // ここでも呼び出す
 
-    setInternalValue(hankakuValue); // 表示値を半角に更新
+    // --- composition中ではない場合のみ処理を実行 ---
+    if (!isComposing.current) {
+      const hankakuValue = zenkakuToHankaku(inputValue); // ここでも呼び出す
 
-    // バリデーションを実行
-    const hasError = validateAndSetError(hankakuValue);
-    if (hasError) {
-      // バリデーションエラーがある場合は、親コンポーネントにエラーを通知
+      setInternalValue(hankakuValue); // 表示値を半角に更新
+
+      // バリデーションを実行
+      const hasError = validateAndSetError(hankakuValue);
+      if (hasError) {
+        // バリデーションエラーがある場合は、親コンポーネントにエラーを通知
+        if (muiOnChange) {
+          muiOnChange({
+            ...event,
+            target: {
+              ...event.target,
+              value: hankakuValue,
+            },
+          });
+        }
+        return; // エラーがある場合は処理を終了
+      }
+
+      // 親コンポーネントに変換後の値を通知
+      if (onValueChange) {
+        onValueChange(hankakuValue);
+      }
+      
       if (muiOnChange) {
         muiOnChange({
           ...event,
@@ -127,24 +153,15 @@ const FullWidthNumberField: React.FC<FullWidthNumberFieldProps> = ({
           },
         });
       }
-      return; // エラーがある場合は処理を終了
+    } else {
+      // composition中の場合は、input要素の表示はIMEに任せるため、
+      // internalValueの更新は行わない。
+      // ただし、外部のonChangeも必要であれば、inputValue（未変換）を渡す
+      if (muiOnChange) {
+         muiOnChange(event); // composition中はIMEが入力値を制御するため、未変換の値を渡す
+      }
     }
-
-    // 親コンポーネントに変換後の値を通知
-    if (onValueChange) {
-      onValueChange(hankakuValue);
-    }
-
-    if (muiOnChange) {
-      muiOnChange({
-        ...event,
-        target: {
-          ...event.target,
-          value: hankakuValue,
-        },
-      });
-    }
-  }, [onValueChange, muiOnChange, validateAndSetError]); // zenkakuToHankaku は依存配列から除外（外部定義のため）
+  }, [onValueChange, muiOnChange, validateAndSetError]);
 
   return (
     <TextField
@@ -155,6 +172,14 @@ const FullWidthNumberField: React.FC<FullWidthNumberFieldProps> = ({
       type="text"
       error={error}
       helperText={error ? internalHelperText : (externalHelperText || '全角数字も半角に変換されます。')}
+      // --- compositionイベントハンドラを追加 ---
+      onCompositionStart={() => { isComposing.current = true; }}
+      onCompositionEnd={(event) => {
+        isComposing.current = false;
+        // compositionが終了した際に、確定された値で再度変換処理を実行
+        // ここでhandleInternalChangeを直接呼び出すと、event.target.valueが確定後の値になる
+        handleInternalChange(event as unknown as React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>);
+      }}
       {...restProps}
       inputProps={{
         ...restProps.inputProps
@@ -162,4 +187,5 @@ const FullWidthNumberField: React.FC<FullWidthNumberFieldProps> = ({
     />
   );
 };
+
 export default FullWidthNumberField;
