@@ -158,7 +158,10 @@ const FullWidthNumberField: React.FC<FullWidthNumberFieldProps> = ({
       // internalValueの更新は行わない。
       // ただし、外部のonChangeも必要であれば、inputValue（未変換）を渡す
       if (muiOnChange) {
-         muiOnChange(event); // composition中はIMEが入力値を制御するため、未変換の値を渡す
+        muiOnChange(event); // composition中はIMEが入力値を制御するため、未変換の値を渡す
+      }
+      if (onValueChange) {
+        onValueChange(inputValue); // 未変換の値を通知
       }
     }
   }, [onValueChange, muiOnChange, validateAndSetError]);
