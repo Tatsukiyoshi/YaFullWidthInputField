@@ -13,6 +13,8 @@ const normalizeAndRemoveCommas = (input: string | number | null | undefined): st
   str = str.replace(/[０-９]/g, (s) =>
     String.fromCharCode(s.charCodeAt(0) - 0xFEE0)
   );
+  // 全角ピリオドを半角ピリオドに変換
+  str = str.replace(/．/g, '.');
   // カンマを除去
   str = str.replace(/,/g, '');
   return str;
