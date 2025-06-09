@@ -22,6 +22,8 @@ const normalizeAndRemoveCommas = (input: string | number | null | undefined): st
   str = str.replace(/[０-９]/g, (s) =>
     String.fromCharCode(s.charCodeAt(0) - 0xFEE0)
   );
+  // 全角ピリオドを半角ピリオドに変換
+  str = str.replace(/．/g, '.');
   // カンマを除去
   str = str.replace(/,/g, '');
   return str;
@@ -767,3 +769,8 @@ TypeScriptを導入することで、開発中に型に関するエラーを早�
     - これにより、例えば整数のみのフィールドに "123.45" と入力してエラーになった場合、表示も "123.45" のままとなり、エラーメッセージと合わせてユーザーは何が問題か把握しやすくなります。
 
 これらの変更により、整数のみが期待されるフィールドに小数を入力すると、その入力値が保持されたままエラーメッセージが表示され、意図しない四捨五入は行われません。
+
+- 0.7.1: 小数点を全角で入力した場合、半角に変換されない
+
+ご指摘ありがとうございます。`FullWidthInputField.tsx` の `normalizeAndRemoveCommas` 関数に、全角の小数点を半角に変換する処理を追加することで修正可能です。
+
