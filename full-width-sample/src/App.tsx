@@ -85,6 +85,7 @@ function App() {
             value={price}
             onValueChange={setPrice} // 変換後の値を受け取るカスタムプロパティ
             min={0}
+            allowDecimal={true} // 小数点を許可 (デフォルト)
             max={1_000_000} // タイプセーフな数値リテラル
             required
             name="price"
@@ -97,6 +98,7 @@ function App() {
             value={quantity}
             onChange={(e) => setQuantity(e.target.value)} // TextField標準のonChangeも使用可能
             min={1}
+            allowDecimal={false} // 整数のみ
             required
             name="quantity"
             sx={{ width: '15ch' }}
@@ -109,11 +111,10 @@ function App() {
             onValueChange={setAge}
             min={0}
             max={120}
+            allowDecimal={false} // 整数のみ
             name="age"
             placeholder="全角で年齢を入力"
             helperText="0から120の整数を入力"
-            // 小数点を受け付けないようにするには、FullWidthNumberField.tsxのzenkakuToHankaku関数を修正
-            // .replace(/[^0-9.]/g, ''); を .replace(/[^0-9]/g, ''); に変更
           />
           {/* 外部から値を制御する例 */}
           <FullWidthNumberField
@@ -121,6 +122,8 @@ function App() {
             value={controlledAmount} // 親で値を完全に管理
             onValueChange={setControlledAmount}
             name="controlledAmount"
+            allowDecimal={true}
+            decimalPlaces={2} // 小数点以下2桁まで
             placeholder="外部から値が設定"
             helperText="初期値が設定されており、ボタンで変更可能"
           />
