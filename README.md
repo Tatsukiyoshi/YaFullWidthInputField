@@ -499,11 +499,15 @@ TypeScriptを導入することで、開発中に型に関するエラーを早�
         MUIのテーマを正しく設定する:
 
         MUIは、アプリケーション全体でダークモードをサポートするための強力なテーマ機能を提供しています。最も推奨されるのは、createTheme と ThemeProvider を使用して、適切にダークモードのパレットを設定することです。
-0.5:
+
+- 0.5:
+
   個別に変換中の値を連携するように修正
 
-0.6:
-  変更点の詳細解説
+- 0.6:
+
+  **変更点の詳細解説**
+
   1.  zenkakuToHankaku 関数の変更:
 
       replace(/[^0-9.]/g, '') の行を削除しました。
@@ -533,23 +537,58 @@ TypeScriptを導入することで、開発中に型に関するエラーを早�
   1.  useEffect の依存配列の修正:
       - useEffect の依存配列から internalValue を削除しました。これにより、internalValue の変更がuseEffectをトリガーすることを防ぎ、無限ループのリスクを軽減します。controlledValue の変更のみを監視し、isComposing.current フラグを考慮して internalValue を更新します。
 
-ダークモードの文字見えにくさ（再確認）
+  - ダークモードの文字見えにくさ（再確認）
 
-  IME変換中の文字（未確定文字列）がダークモードで見えない、という問題が発生している場合、それはTextFieldの内部のinput要素にIMEが直接描画している部分の色が、あなたのMUIテーマのtext.primaryやbackground.paperと合っていない可能性があります。
+    IME変換中の文字（未確定文字列）がダークモードで見えない、という問題が発生している場合、それはTextFieldの内部のinput要素にIMEが直接描画している部分の色が、あなたのMUIテーマのtext.primaryやbackground.paperと合っていない可能性があります。
 
-確認点:
-1.  TextField のスタイル確認:
+  - 確認点:
+  1.  TextField のスタイル確認:
 
-    ブラウザの開発者ツールで、IME変換中の入力フィールドのスタイル（特にcolorとbackground-color）を確認してください。どのCSSルールが適用されているかを見て、テーマ設定がうまく反映されているか、あるいは何らかのカスタムCSSが干渉していないかを確認します。
+      ブラウザの開発者ツールで、IME変換中の入力フィールドのスタイル（特にcolorとbackground-color）を確認してください。どのCSSルールが適用されているかを見て、テーマ設定がうまく反映されているか、あるいは何らかのカスタムCSSが干渉していないかを確認します。
 
-1.  MUIテーマのpalette設定:
+  1.  MUIテーマのpalette設定:
 
-      palette.mode: 'dark'
-      palette.text.primary: 明るい色 (例: #e0e0e0)
-      palette.background.default: 暗い背景色 (例: #121212)
-      palette.background.paper: コンポーネントの背景色 (例: #1d1d1d) 
+        palette.mode: 'dark'
+        palette.text.primary: 明るい色 (例: #e0e0e0)
+        palette.background.default: 暗い背景色 (例: #121212)
+        palette.background.paper: コンポーネントの背景色 (例: #1d1d1d) 
 
-      これらが適切に設定されているか再確認してください。
-1.  CssBaseline の使用:
+        これらが適切に設定されているか再確認してください。
+  1.  CssBaseline の使用:
 
-    CssBaseline はMUIの推奨するCSSリセットであり、テーマの背景色などを適用するのに役立ちます。これがルートコンポーネントで使われているか確認してください。
+      CssBaseline はMUIの推奨するCSSリセットであり、テーマの背景色などを適用するのに役立ちます。これがルートコンポーネントで使われているか確認してください。
+
+- 0.7:  入力した値をカンマ区切りで表示するようにしたい
+
+  指定された要件に合わせて、入力された数値をカンマ区切りで表示するように FullWidthInputField.tsx を変更します。
+
+  主な変更点は以下の通りです。
+
+  1.  入力値の正規化:
+
+      全角数字を半角に変換し、入力値に含まれる可能性のあるカンマを除去する normalizeAndRemoveCommas 関数を定義します。この関数は、コンポーネント内部で値を扱う際の標準形を保証します。
+
+  1.  数値のカンマ区切りフォーマット:
+
+      カンマなしの数値文字列を受け取り、カンマ区切り形式の文字列に変換する formatNumberWithCommas 関数を定義します。これは表示専用です。
+
+  1.  ステート状態管理の更新:
+
+      internalValue state は、常に normalizeAndRemoveCommas によって正規化されたカンマなしの値を保持します。
+      controlledValue (propsから渡される値) やユーザー入力は、この正規化関数を通して internalValue に設定されます。
+
+  1.  表示処理の変更:
+
+      TextField の value プロパティには、internalValue を formatNumberWithCommas でフォーマットした結果を渡します。
+      IME入力中はフォーマットを適用せず、ユーザーが入力中の未確定文字列をそのまま表示します。
+
+  1.  イベントハンドラの調整:
+
+      handleInternalChange は、ユーザー入力を正規化した上で internalValue を更新し、onValueChange コールバックには正規化後のカンマなしの値を渡します。
+      onCompositionEnd イベント後も、確定した値を正規化して処理します。
+
+  1.  バリデーション:
+
+      バリデーションロジック (validateAndSetError) は、引き続きカンマなしの internalValue を基に行われます。
+
+  これにより、ユーザーは全角数字やカンマを含む数値を入力できますが、内部的にはカンマなしの半角数値文字列として扱われ、表示上は適切にカンマ区切りされます。
