@@ -21,33 +21,56 @@ const normalizeAndRemoveCommas = (input: string | number | null | undefined): st
 };
 
 // 数値をカンマ区切り文字列にフォーマットする関数
-const formatNumberWithCommas = (value: string): string => {
+const formatNumberWithCommas = (
+  value: string,
+  allowDecimal: boolean,
+  decimalPlaces?: number
+): string => {
   if (value === null || value === undefined) return '';
   const valStr = String(value);
 
   if (valStr === '' || valStr === '-' || valStr === '.' || valStr === '-.') return valStr;
 
-  const parts = valStr.split('.');
-  let integerPart = parts[0];
-  const decimalPart = parts.length > 1 ? parts[1] : undefined;
+  const num = Number(valStr);
 
-  let formattedIntegerPart = integerPart;
-  // 整数部分が空でなく、かつマイナス記号だけでもない場合のみtoLocaleStringを試みる
-  if (integerPart !== '' && integerPart !== '-') {
-    const num = Number(integerPart);
-    if (!isNaN(num)) { // 有効な数値の場合のみフォーマット
-      formattedIntegerPart = num.toLocaleString('en-US', {
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 0,
-      });
+  if (isNaN(num)) {
+    // Number() で NaN になるが、部分的にフォーマット可能な場合 (例: "123invalid")
+    // 基本的にはバリデーションでエラーになるはず。
+    const parts = valStr.split('.');
+    const integerPart = parts[0];
+    const potentialDecimalPart = parts.length > 1 ? parts[1] : undefined;
+    const intNumCheck = Number(integerPart);
+    if (integerPart !== '' && !isNaN(intNumCheck)) {
+      let formattedInt = Number(integerPart).toLocaleString('en-US', { maximumFractionDigits: 0 });
+      if (allowDecimal && potentialDecimalPart !== undefined) {
+        return `${formattedInt}.${potentialDecimalPart}`;
+      }
+      return formattedInt;
     }
-    // else: 数値に変換できない場合 (例: "--") は元の integerPart を使用
+    return valStr; // フォーマット不能ならそのまま
   }
 
-  if (decimalPart !== undefined) {
-    return formattedIntegerPart + '.' + decimalPart;
+  // 有効な数値の場合
+  const options: Intl.NumberFormatOptions = {};
+  if (!allowDecimal) {
+    options.minimumFractionDigits = 0;
+    options.maximumFractionDigits = 0;
+  } else {
+    if (decimalPlaces !== undefined) {
+      options.minimumFractionDigits = decimalPlaces;
+      options.maximumFractionDigits = decimalPlaces;
+    } else {
+      const decimalPartStr = valStr.split('.')[1];
+      if (decimalPartStr) {
+        options.minimumFractionDigits = decimalPartStr.length;
+        options.maximumFractionDigits = decimalPartStr.length;
+      } else {
+        options.minimumFractionDigits = 0;
+        options.maximumFractionDigits = 0;
+      }
+    }
   }
-  return formattedIntegerPart;
+  return num.toLocaleString('en-US', options);
 };
 
 // FullWidthNumberFieldに独自のPropsを追加するための型定義
@@ -73,9 +96,22 @@ interface FullWidthNumberFieldProps extends Omit<TextFieldProps, 'value' | 'onCh
    */
   max?: number;
   /**
+   * 小数点の入力を許可するかどうか。デフォルトはtrue。
+   * falseの場合、整数のみが許可されます。
+   */
+  allowDecimal?: boolean;
+  /**
+   * 許可される小数点以下の最大桁数。allowDecimalがtrueの場合にのみ有効。
+   */
+  decimalPlaces?: number;
+  /**
    * TextFieldの標準onChangeイベントハンドラ。
    */
   onChange?: TextFieldProps['onChange'];
+  /**
+   * TextFieldの標準onBlurイベントハンドラ。
+   */
+  onBlur?: TextFieldProps['onBlur']
 }
 
 const FullWidthNumberField: React.FC<FullWidthNumberFieldProps> = ({
@@ -83,9 +119,12 @@ const FullWidthNumberField: React.FC<FullWidthNumberFieldProps> = ({
   onValueChange,
   min,
   max,
+  allowDecimal = true, // デフォルトで小数を許可
+  decimalPlaces,
   label = '数値',
   placeholder = '全角数字も入力できます',
   onChange: muiOnChange,
+  onBlur: muiOnBlur, // muiOnBlur を props から受け取る
   helperText: externalHelperText,
   ...restProps
 }) => {
@@ -104,13 +143,13 @@ const FullWidthNumberField: React.FC<FullWidthNumberFieldProps> = ({
     // IME変換中ではない場合、親から渡された値を正規化して内部状態を更新
     // Composition中はIMEがDOMを制御するため、更新を控える
     if (!isComposing.current) {
-        const normalized = normalizeAndRemoveCommas(controlledValue);
-        // 現在のinternalValueと異なる場合のみ更新
-        if (normalized !== internalValue) {
-            setInternalValue(normalized);
-            // 値が変更されたらバリデーションも再実行
-            validateAndSetError(normalized);
-        }
+      const normalized = normalizeAndRemoveCommas(controlledValue);
+      // 現在のinternalValueと異なる場合のみ更新
+      if (normalized !== internalValue) {
+          setInternalValue(normalized);
+          // 値が変更されたらバリデーションも再実行
+          validateAndSetError(normalized);
+      }
     }
   }, [controlledValue]); // internalValue を依存配列から外すことで無限ループを避ける
 
@@ -125,39 +164,86 @@ const FullWidthNumberField: React.FC<FullWidthNumberFieldProps> = ({
       currentHelperText = '入力は必須です。';
     } else if (currentValue !== '') {
       // 半角数字、小数点、先頭のマイナス記号のみを許容する正規表現
-      // 例えば、'--' や '..', '1.2.3' のようなものは不正とする
-      const isValidFormat = /^-?\d*(\.\d*)?$/.test(currentValue);
-
-      if (!isValidFormat) {
-          hasError = true;
-          currentHelperText = '有効な半角数字、小数点、マイナス記号のみが許容されます。';
+      const patternStr = allowDecimal ? `^-?\\d*(\\.\\d*)?$` : `^-?\\d*$`;
+      const isValidNumericFormat = new RegExp(patternStr).test(currentValue);
+      
+      if (!isValidNumericFormat) {
+        hasError = true;
+        currentHelperText = allowDecimal
+          ? '有効な半角数字、小数点、マイナス記号のみが許容されます。'
+          : '有効な半角整数、マイナス記号のみが許容されます。';
       } else {
-        const numValue = Number(currentValue);
-        // 数値に変換できない場合（例: "-", ".", "-." のみ）はエラーだが、入力途中として許容する
-        if (isNaN(numValue)) {
-            // ただし、もし有効な数値に変換できないが、かつ数値の形でない場合はエラー
-            if (currentValue !== '-' && currentValue !== '.') {
-              hasError = true;
-              currentHelperText = '有効な半角数字を入力してください。';
-            }
-        }
-        // 数値に変換できた場合の範囲チェック
-        else { // !isNaN(numValue) の場合
-            if (min !== undefined && numValue < min) {
+        // 入力途中として許容するパターン: "-", ".", "-." (allowDecimal時のみ)
+        const isInputInProgress = currentValue === '-' ||
+                                 (allowDecimal && (currentValue === '.' || currentValue === '-.'));
+
+        if (isInputInProgress) {
+          // No error, input is in progress
+        } else {
+          const numValue = Number(currentValue);
+          if (isNaN(numValue)) {
+            // このパスは isValidNumericFormat のチェックにより通常は到達しないはず
+            hasError = true;
+            currentHelperText = '有効な半角数字を入力してください。';
+          } else { // !isNaN(numValue) の場合
+            if (allowDecimal && decimalPlaces !== undefined) {
+              const parts = currentValue.split('.');
+              if (parts.length > 1 && parts[1].length > decimalPlaces) {
                 hasError = true;
-                currentHelperText = `${min}以上の値を入力してください。`;
+                currentHelperText = `小数点以下は${decimalPlaces}桁までです。`;
+              }
             }
-            if (max !== undefined && numValue > max) {
-                hasError = true;
-                currentHelperText = `${max}以下の値を入力してください。`;
+            // 桁数エラーがない場合のみ範囲チェック
+            if (!hasError) {
+              if (min !== undefined && numValue < min) {
+                  hasError = true;
+                  currentHelperText = `${min}以上の値を入力してください。`;
+              }
+              if (max !== undefined && numValue > max) {
+                  hasError = true;
+                  currentHelperText = `${max}以下の値を入力してください。`;
+              }
             }
+          }
         }
       }
     }
     setError(hasError);
     setInternalHelperText(currentHelperText);
     return hasError; // バリデーション結果を返す
-  }, [min, max, restProps.required]);
+  }, [min, max, restProps.required, allowDecimal, decimalPlaces]);
+
+    // input要素のonBlurイベントハンドラ
+  const handleInternalBlur = useCallback((event: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    if (!isComposing.current) {
+      const currentValue = internalValue;
+      // まず現在の値でバリデーションを再実行し、エラー状態を最新にする
+      const hasErrorFromValidation = validateAndSetError(currentValue);
+
+      // エラーがなく、かつ小数が許可されていて、小数点以下の桁数指定がある場合のみ丸め処理を行う
+      // allowDecimal === false の場合は、ここでの丸め処理は行わない。
+      // バリデーションでエラーになっていれば、そのエラー状態が維持される。
+      if (!hasErrorFromValidation && allowDecimal && decimalPlaces !== undefined) {
+        const numValue = Number(currentValue);
+        // 有効な数値の場合のみ丸める (入力途中の "-", "." は除外)
+        if (!isNaN(numValue) && currentValue !== '' && currentValue !== '-' && currentValue !== '.') {
+          const roundedValue = numValue.toFixed(decimalPlaces);
+          if (roundedValue !== currentValue) {
+            setInternalValue(roundedValue);
+            // 丸め後の値で再度バリデーション（主に表示のため、エラーは発生しない想定）
+            validateAndSetError(roundedValue);
+            if (onValueChange) {
+              onValueChange(roundedValue);
+            }
+          }
+        }
+      }
+    }
+    // 外部のonBlurプロパティがあれば呼び出す
+    if (muiOnBlur) {
+      muiOnBlur(event);
+    }
+  }, [internalValue, onValueChange, validateAndSetError, allowDecimal, decimalPlaces, muiOnBlur]);
 
   // input要素のonChangeイベントハンドラ
   const handleInternalChange = useCallback((event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -165,41 +251,46 @@ const FullWidthNumberField: React.FC<FullWidthNumberFieldProps> = ({
 
     // composition中は、IMEがDOMを直接操作するため、Reactのstateは更新しない
     if (isComposing.current) {
-        // IMEが未確定文字列を表示している間は、その値をそのままinternalValueにセットし、
-        // Reactの再レンダリングをトリガーしてIMEの入力バッファがクリアされないようにする。
-        // ただし、この時のinternalValueは「未確定文字列」なので、バリデーションは行わない。
-        setInternalValue(inputValue);
-        // 外部のonChangeも必要な場合は呼び出す（IMEによる未確定文字列を渡す）
-        if (muiOnChange) {
-            muiOnChange(event);
-        }
+      // IMEが未確定文字列を表示している間は、その値をそのままinternalValueにセットし、
+      // Reactの再レンダリングをトリガーしてIMEの入力バッファがクリアされないようにする。
+      // ただし、この時のinternalValueは「未確定文字列」なので、バリデーションは行わない。
+      setInternalValue(inputValue);
+      // 外部のonChangeも必要な場合は呼び出す（IMEによる未確定文字列を渡す）
+      if (muiOnChange) {
+        muiOnChange(event);
+      }
     } else {
-        // composition中ではない場合（直接入力、コピペ、composition確定後など）
-        // 入力値を正規化 (全角->半角、カンマ除去)
-        const normalizedValue = normalizeAndRemoveCommas(inputValue);
-        setInternalValue(normalizedValue);
-        validateAndSetError(normalizedValue); // バリデーションを実行
+      // composition中ではない場合（直接入力、コピペ、composition確定後など）
+      // 入力値を正規化 (全角->半角、カンマ除去)
+      const normalizedValue = normalizeAndRemoveCommas(inputValue);
+      setInternalValue(normalizedValue);
+      validateAndSetError(normalizedValue); // バリデーションを実行
 
-        // 外部に変換後の値を通知
-        if (onValueChange) {
-            onValueChange(normalizedValue);
-        }
-        // TextFieldの標準onChangeも呼び出す
-        if (muiOnChange) {
-            muiOnChange({
-                ...event,
-                target: {
-                    ...event.target,
-                    value: normalizedValue, // 変換後の値をセットして渡す
-                },
-            });
-        }
+      // 外部に変換後の値を通知
+      if (onValueChange) {
+          onValueChange(normalizedValue);
+      }
+      // TextFieldの標準onChangeも呼び出す
+      if (muiOnChange) {
+          muiOnChange({
+              ...event,
+              target: {
+                  ...event.target,
+                  value: normalizedValue, // 変換後の値をセットして渡す
+              },
+          });
+      }
     }
   }, [onValueChange, muiOnChange, validateAndSetError]);
 
   // 表示用の値。IME入力中は internalValue (未確定文字列、カンマ含む可能性あり) をそのまま使い、
+  // エラーが発生している場合も、フォーマットせずに元の入力値を表示する
   // それ以外の場合は internalValue (カンマなし確定文字列) をフォーマットする。
-  const displayValue = isComposing.current ? internalValue : formatNumberWithCommas(internalValue);
+  const displayValue = (isComposing.current || error)
+    ? internalValue // IME入力中またはエラー時はそのまま表示
+    : formatNumberWithCommas(internalValue, allowDecimal, decimalPlaces);
+
+  const defaultHelperText = allowDecimal ? '全角数字も半角に変換されます。' : '全角整数も半角に変換されます。';
 
   return (
     <TextField
@@ -207,9 +298,10 @@ const FullWidthNumberField: React.FC<FullWidthNumberFieldProps> = ({
       placeholder={placeholder}
       value={displayValue} // フォーマットされた値を表示
       onChange={handleInternalChange}
+      onBlur={handleInternalBlur} // Blurイベントハンドラを追加
       type="text" // 全角文字を受け入れるために'text'型を使用
       error={error}
-      helperText={error ? internalHelperText : (externalHelperText || '全角数字も半角に変換されます。')}
+      helperText={error ? internalHelperText : (externalHelperText || defaultHelperText)}
       // IME compositionイベントハンドラ
       onCompositionStart={() => { isComposing.current = true; }}
       onCompositionEnd={(event) => {
